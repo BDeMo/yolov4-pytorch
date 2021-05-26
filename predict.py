@@ -8,8 +8,9 @@ import time
 import cv2
 import numpy as np
 from PIL import Image
-
+import matplotlib.pyplot as plt
 from yolo import YOLO
+
 
 if __name__ == "__main__":
     yolo = YOLO()
@@ -52,6 +53,9 @@ if __name__ == "__main__":
             else:
                 r_image = yolo.detect_image(image)
                 r_image.show()
+                plt.imshow(r_image)
+                plt.show()
+                # r_image.save(img+'_result.jpg')
 
     elif mode == "video":
         capture=cv2.VideoCapture(video_path)
