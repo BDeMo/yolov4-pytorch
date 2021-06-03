@@ -5,9 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-#-------------------------------------------------#
+# -------------------------------------------------#
 #   MISH激活函数
-#-------------------------------------------------#
+# -------------------------------------------------#
 class Mish(nn.Module):
     def __init__(self):
         super(Mish, self).__init__()
@@ -15,15 +15,16 @@ class Mish(nn.Module):
     def forward(self, x):
         return x * torch.tanh(F.softplus(x))
 
-#---------------------------------------------------#
+
+# ---------------------------------------------------#
 #   卷积块 -> 卷积 + 标准化 + 激活函数
 #   Conv2d + BatchNormalization + Mish
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class BasicConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1):
         super(BasicConv, self).__init__()
 
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, kernel_size//2, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, kernel_size // 2, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
         self.activation = Mish()
 
@@ -33,10 +34,11 @@ class BasicConv(nn.Module):
         x = self.activation(x)
         return x
 
-#---------------------------------------------------#
+
+# ---------------------------------------------------#
 #   CSPdarknet的结构块的组成部分
 #   内部堆叠的残差块
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class Resblock(nn.Module):
     def __init__(self, channels, hidden_channels=None):
         super(Resblock, self).__init__()
@@ -52,50 +54,51 @@ class Resblock(nn.Module):
     def forward(self, x):
         return x + self.block(x)
 
-#--------------------------------------------------------------------#
+
+# --------------------------------------------------------------------#
 #   CSPdarknet的结构块
 #   首先利用ZeroPadding2D和一个步长为2x2的卷积块进行高和宽的压缩
 #   然后建立一个大的残差边shortconv、这个大残差边绕过了很多的残差结构
 #   主干部分会对num_blocks进行循环，循环内部是残差结构。
 #   对于整个CSPdarknet的结构块，就是一个大残差块+内部多个小残差块
-#--------------------------------------------------------------------#
+# --------------------------------------------------------------------#
 class Resblock_body(nn.Module):
     def __init__(self, in_channels, out_channels, num_blocks, first):
         super(Resblock_body, self).__init__()
-        #----------------------------------------------------------------#
+        # ----------------------------------------------------------------#
         #   利用一个步长为2x2的卷积块进行高和宽的压缩
-        #----------------------------------------------------------------#
+        # ----------------------------------------------------------------#
         self.downsample_conv = BasicConv(in_channels, out_channels, 3, stride=2)
 
         if first:
-            #--------------------------------------------------------------------------#
+            # --------------------------------------------------------------------------#
             #   然后建立一个大的残差边self.split_conv0、这个大残差边绕过了很多的残差结构
-            #--------------------------------------------------------------------------#
+            # --------------------------------------------------------------------------#
             self.split_conv0 = BasicConv(out_channels, out_channels, 1)
 
-            #----------------------------------------------------------------#
+            # ----------------------------------------------------------------#
             #   主干部分会对num_blocks进行循环，循环内部是残差结构。
-            #----------------------------------------------------------------#
-            self.split_conv1 = BasicConv(out_channels, out_channels, 1)  
+            # ----------------------------------------------------------------#
+            self.split_conv1 = BasicConv(out_channels, out_channels, 1)
             self.blocks_conv = nn.Sequential(
-                Resblock(channels=out_channels, hidden_channels=out_channels//2),
+                Resblock(channels=out_channels, hidden_channels=out_channels // 2),
                 BasicConv(out_channels, out_channels, 1)
             )
 
-            self.concat_conv = BasicConv(out_channels*2, out_channels, 1)
+            self.concat_conv = BasicConv(out_channels * 2, out_channels, 1)
         else:
-            #--------------------------------------------------------------------------#
+            # --------------------------------------------------------------------------#
             #   然后建立一个大的残差边self.split_conv0、这个大残差边绕过了很多的残差结构
-            #--------------------------------------------------------------------------#
-            self.split_conv0 = BasicConv(out_channels, out_channels//2, 1)
+            # --------------------------------------------------------------------------#
+            self.split_conv0 = BasicConv(out_channels, out_channels // 2, 1)
 
-            #----------------------------------------------------------------#
+            # ----------------------------------------------------------------#
             #   主干部分会对num_blocks进行循环，循环内部是残差结构。
-            #----------------------------------------------------------------#
-            self.split_conv1 = BasicConv(out_channels, out_channels//2, 1)
+            # ----------------------------------------------------------------#
+            self.split_conv1 = BasicConv(out_channels, out_channels // 2, 1)
             self.blocks_conv = nn.Sequential(
-                *[Resblock(out_channels//2) for _ in range(num_blocks)],
-                BasicConv(out_channels//2, out_channels//2, 1)
+                *[Resblock(out_channels // 2) for _ in range(num_blocks)],
+                BasicConv(out_channels // 2, out_channels // 2, 1)
             )
 
             self.concat_conv = BasicConv(out_channels, out_channels, 1)
@@ -108,28 +111,29 @@ class Resblock_body(nn.Module):
         x1 = self.split_conv1(x)
         x1 = self.blocks_conv(x1)
 
-        #------------------------------------#
+        # ------------------------------------#
         #   将大残差边再堆叠回来
-        #------------------------------------#
+        # ------------------------------------#
         x = torch.cat([x1, x0], dim=1)
-        #------------------------------------#
+        # ------------------------------------#
         #   最后对通道数进行整合
-        #------------------------------------#
+        # ------------------------------------#
         x = self.concat_conv(x)
 
         return x
 
-#---------------------------------------------------#
+
+# ---------------------------------------------------#
 #   CSPdarknet53 的主体部分
 #   输入为一张416x416x3的图片
 #   输出为三个有效特征层
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class CSPDarkNet(nn.Module):
-    def __init__(self, layers):
+    def __init__(self, layers, num_class=1000):
         super(CSPDarkNet, self).__init__()
         self.inplanes = 32
         # 416,416,3 -> 416,416,32
-        self.conv1 = BasicConv(3, self.inplanes, kernel_size=3, stride=1)
+        self.pre = BasicConv(3, self.inplanes, kernel_size=3, stride=1)
         self.feature_channels = [64, 128, 256, 512, 1024]
 
         self.stages = nn.ModuleList([
@@ -144,6 +148,7 @@ class CSPDarkNet(nn.Module):
             # 26,26,512 -> 13,13,1024
             Resblock_body(self.feature_channels[3], self.feature_channels[4], layers[4], first=False)
         ])
+        self.fc = nn.Linear(1024, num_class)
 
         self.num_features = 1
         for m in self.modules():
@@ -154,23 +159,30 @@ class CSPDarkNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-
     def forward(self, x):
-        x = self.conv1(x)
-
+        x = self.pre(x)
         x = self.stages[0](x)
         x = self.stages[1](x)
-        out3 = self.stages[2](x)
-        out4 = self.stages[3](out3)
-        out5 = self.stages[4](out4)
+        out1 = self.stages[2](x)
+        out2 = self.stages[3](out1)
+        out3 = self.stages[4](out2)
+        x = F.avg_pool2d(out3, 7)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x, out1, out2, out3
 
-        return out3, out4, out5
 
-def darknet53(pretrained, **kwargs):
-    model = CSPDarkNet([1, 2, 8, 8, 4])
+def darknet53(pretrained, num_class, **kwargs):
+    model = CSPDarkNet([1, 2, 8, 8, 4], num_class=10)
     if pretrained:
         if isinstance(pretrained, str):
             model.load_state_dict(torch.load(pretrained))
         else:
             raise Exception("darknet request a pretrained path. got [{}]".format(pretrained))
     return model
+
+if __name__ == "__main__":
+    model = darknet53(None)
+    x = torch.randn(1, 3, 416, 416)
+    out1, out2, out3 = model(x)
+    print(out1.shape, out2.shape, out3.shape)

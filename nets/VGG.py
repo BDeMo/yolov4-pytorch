@@ -48,6 +48,7 @@ class VGG_net(nn.Module):
 
         return nn.Sequential(*layers)
 
+
 def imshow(img):
     img = img / 2 + 0.5
     np_img = img.numpy()
