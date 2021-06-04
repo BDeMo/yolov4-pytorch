@@ -98,12 +98,11 @@ def resnet17(pretrained):
             model_dict.update(pretrained_dict)
             model.load_state_dict(model_dict)
         else:
-            raise Exception("darknet request a pretrained path. got [{}]".format(pretrained))
+            raise Exception("resnet request a pretrained path. got [{}]".format(pretrained))
     return model
 
 if __name__ == "__main__":
     model = resnet17(None)
-    print(model.layer3)
     x = torch.randn(1, 3, 416, 416)
-    out1, out2, out3 = model(x)
-    print(out1.shape, out2.shape, out3.shape)
+    _, out1, out2, out3 = model(x)
+    print(_.shape, out1.shape, out2.shape, out3.shape)
